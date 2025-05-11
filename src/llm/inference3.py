@@ -15,10 +15,10 @@ def main():
     from vllm import LLM, SamplingParams
     from peft import PeftModel
 
-    llm_name = "mistralai/Mistral-Small-3.1-24B-Instruct-2503"
-    llm_subname = "mistral-small-3.1-24b-instruct-2503-hf"
-    # llm_name = "google/gemma-3-12b-it"
-    # llm_subname = "gemma-3-12b-it"
+    # llm_name = "mistralai/Mistral-Small-3.1-24B-Instruct-2503"
+    # llm_subname = "mistral-small-3.1-24b-instruct-2503-hf"
+    llm_name = "google/gemma-3-12b-it"
+    llm_subname = "gemma-3-12b-it"
     # llm_name = "google/gemma-3-27b-it"
     # llm_subname = "gemma-3-27b-it"
     # llm_name = "meta-llama/Llama-3.1-8B-Instruct"
@@ -32,12 +32,12 @@ def main():
 
     llm = LLM(
         model=llm_name,
-        tokenizer_mode="mistral",
-        config_format="mistral",
-        load_format="mistral",
-        # load_format="auto",
+        # tokenizer_mode="mistral",
+        # config_format="mistral",
+        # load_format="mistral",
+        load_format="auto",
         # tensor_parallel_size=2,
-        dtype="half",
+        # dtype="half",
         # gpu_memory_utilization=0.9,
         max_logprobs=1000,
         device="auto",
@@ -129,18 +129,7 @@ def main():
     Only answer questions using data explicitly present in given studies.
     """
 
-    # annotation_instructions = """As shown in the examples, **many texts require tagging**—**do not hesitate** to mark every instance where a mention fits the categories. **If a text matches any category, it must be tagged**. Do not omit valid mentions.
-    # Your task is to **modify the original abstract** by adding "@@mentions##entity@@" **wherever required**.
-    # Avoid errors such as duplicating sentences, omitting text, or introducing hallucinations. Ensure the output is precise, consistent, and faithfully preserves the original structure.
-    # """
-
     annotation_instructions = """Your final output must match the original abstract precisely. Be sure that any errors such as duplicating sentences, omitting text, or introducing hallucinations are corrected before the final output."""
-
-    # annotation_instructions = """A student has already started the annotations so that it goes faster for you. However, it's the student work so he probably introduced a lot of mistakes. Your task is to correct all his mistakes.
-    # """
-
-    # annotation_instructions = """A student has already begun the annotations to speed up the process for you. However, since it's student work, the annotations contain a significant amount of noise (approximately 50%). Your task is to carefully review and correct all errors.  REVISIONS ARE MANDATORY, as the student has made numerous errors.
-    # """
 
     device_1 = torch.device("cuda:0")
     device_2 = torch.device("cuda:1")
@@ -148,7 +137,6 @@ def main():
     ######### DATASET #########
     dataset = "mm_st21pv"
     dataset_dir = "mm_st21pv"
-    # dataset_v2 = "mm_st21pv_BioLinkBERT-base_test_v1"
 
     extraction_prompts = extraction_prompts_st21pv_v2
     tag_to_label = tag2label_st21pv
@@ -157,7 +145,7 @@ def main():
 
     version = "v4"
 
-    data_path = f"/home2/cye73/noisyNER/noisyNER/data/{dataset_dir}/{dataset}.json"
+    data_path = f"../data/{dataset_dir}/{dataset}.json"
     data = ujson.load(open(data_path))
 
     data_train = {k: v for k, v in data.items() if v["split"] == "train"}
@@ -169,7 +157,6 @@ def main():
         abstract2pmid = {data_train[pmid]["input"]: pmid for pmid in data_train}
 
         model = SentenceTransformer("princeton-nlp/sup-simcse-bert-base-uncased")
-        # model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
         model.to(device_1)
         # Generate embeddings for the corpus
         corpus_embeddings = model.encode(corpus, convert_to_tensor=True)
@@ -209,7 +196,7 @@ def main():
 
     for eval_set in pmids_to_eval:
         pmids_subset = pmids_to_eval[eval_set]
-        for k in [1, 3, 5, 10]:
+        for k in [10]:
             results = []
             raw_results = []
 
@@ -226,9 +213,6 @@ def main():
             for i, pmid in enumerate(pmids_subset):
                 print("i :", i, "pmid :", pmid)
                 abstract, true_spans = data[pmid]["input"], data[pmid]["spans"]
-
-                # if eval_set == "valid":
-                #     prompt = datasett[pmid]["prompt"]
 
                 examples, _ = topk_examples(
                     model=model,

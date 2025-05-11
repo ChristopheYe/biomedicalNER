@@ -229,7 +229,7 @@ def knn_query(model, index, query, k=3, most_similar=True):
     if most_similar:
         return indices[0][:k]  # Top-k most similar (smallest distance)
     else:
-        return indices[0][-k:]  # Top-k most dissimilar (largest distance)
+        return indices[0][-k:]  # Top-k most dissimilar
 
 
 def topk_examples(
@@ -554,7 +554,7 @@ def gather_tagged_entities(original_text, llm_output, tag2label):
         end_in_plain = start_in_plain + len(tagged_text)
         if (
             entity_type not in tag2label
-        ):  # Avoid hallucinations such as "@@administrative## reasons; 123 patients from @@ reasons; 123 patients from" or nonexistant tag (i.e. "T116")
+        ):  # Avoid hallucinations such as 1) "@@administrative## reasons; 123 patients from @@ reasons; 123 patients from" or 2) nonexistant tag (i.e. "T116")
             continue
         entity_positions.append(
             {
@@ -949,7 +949,75 @@ def extract_last_json_from_text(text):
         return ""
 
 
-########################### For Dataset corruption ############################
+def create_tagged_text(abstract, pred_spans):
+    """
+    Function which modifies the abstract to include the entity:
+    Input : "DCTN4 as a modifier of chronic Pseudomonas aeruginosa infection"
+    Output : "@@DCTN4##T103@@ as a modifier of @@chronic Pseudomonas aeruginosa infection##T038@@"
+    If two or more spans overlap, only the span with the earliest start is kept.
+    -------------
+    Parameters:
+    - abstract (str): The original text
+    - pred_spans (list of dict): A list of spans with entity details (start, end, text, tag)
+
+    Returns:
+    - new_abstract (str): The text modified with entity annotations
+    """
+    # First, sort spans by start (and end if needed) in ascending order.
+    sorted_spans = sorted(pred_spans, key=lambda x: (x["start"], x["end"]))
+
+    # Build list with non overlapping spans: if a span overlaps any previously accepted one,
+    # we keep only the one with the earliest start (already accepted).
+    allowed_spans = []
+    current_end = -1  # initial value before any span is accepted
+    for span in sorted_spans:
+        if span["start"] >= current_end:
+            allowed_spans.append(span)
+            current_end = span["end"]
+
+    # For text replacement, sort allowed spans in reverse order by start.
+    allowed_spans = sorted(allowed_spans, key=lambda x: x["start"], reverse=True)
+    new_abstract = abstract
+
+    # Replace text segments with the tagged annotation.
+    for span in allowed_spans:
+        start = span["start"]
+        end = span["end"]
+        text = span["text"]
+        entity_tag = span["tag"]
+        tagged_text = f"@@{text}##{entity_tag}@@"
+        new_abstract = new_abstract[:start] + tagged_text + new_abstract[end:]
+
+    return new_abstract
+
+
+def fuse_adjacent_tag(true_spans):
+    """
+    Merge adjacent true spans that have the same label and tag.
+    """
+    if len(true_spans) == 0:
+        return []
+    new_true_spans = []
+    prev = true_spans[0]
+    for t in true_spans[1:]:
+        if prev["tag"] == t["tag"] and prev["end"] + 1 == t["start"]:
+            prev = {
+                "start": prev["start"],
+                "end": t["end"],
+                "label": prev["label"],
+                "tag": prev["tag"],
+                "text": prev["text"] + " " + t["text"],
+            }
+        else:
+            new_true_spans.append(prev)
+            prev = t
+    new_true_spans.append(prev)
+    return new_true_spans
+
+
+################################################################################################################
+########################### FOR DATASET CORRUPTION PART (dataset_corruption2.ipynb) ############################
+################################################################################################################
 
 
 def generate_prompt_dataset_corruption(
@@ -1000,123 +1068,6 @@ def generate_prompt_dataset_corruption(
     return prompt
 
 
-# def compute_noise(pred_spans, true_spans, debug=False):
-#     """
-#     Compare predicted spans (pred_spans) and true spans (true_spans) and classify errors.
-#     Error types:
-#       - wrong_label: boundaries match exactly but label is incorrect.
-#       - wrong_overlap (too_little: predicted span is too short, missing important information / too_much: predicted span is too long, including unnecessary words / too_much_and_too_little: predicted span is too long on one side and too short on the other.)
-#       - multiple_entities: predicted span overlaps with more than one true span.
-#       - invalid_tag: predicted span does not overlap any true span.
-#       - missing: true span is not matched by any predicted span. (forgotten by the model prediction)
-
-#     Returns:
-#       noise (float): proportion of noise.
-#       noise_count (int): number of noisy spans.
-#       n_true (int): number of true spans.
-#       results (list): each element is a dict with keys:
-#           'start', 'end', 'label', 'tag', 'text', 'correct', and 'error_type'.
-#     """
-#     noise_count = 0
-#     noise_types = {
-#         "wrong_label": 0,
-#         "wrong_overlap": 0,
-#         "multiple_entities": 0,
-#         "invalid_tag": 0,
-#         "missing": 0,
-#     }
-#     results = []
-#     n_true = len(true_spans)
-#     n_pred = len(pred_spans)
-#     correct_count = 0
-
-#     # Pointer for true_spans (assumes both lists are sorted by start index)
-#     i = 0
-#     for idx, p in enumerate(pred_spans):
-#         overlaps = []
-#         # Advance true_spans pointer if current true span ends before the predicted span starts.
-#         while i < n_true and true_spans[i]["end"] <= p["start"]:
-#             i += 1
-#         # Check subsequent true_spans for ANY overlap with the predicted span.
-#         j = i
-#         while j < n_true and true_spans[j]["start"] < p["end"]:
-#             t = true_spans[j]
-#             # If the predicted span and true span overlap, add to the candidate list.
-#             if p["start"] < t["end"] and p["end"] > t["start"]:
-#                 overlaps.append(t)
-#             j += 1
-#         # Decide error type based on the overlaps.
-#         if len(overlaps) == 0:
-#             error_type = "invalid_tag"
-#             correct = False
-#             noise_types[error_type] += 1
-#         elif len(overlaps) > 1:
-#             error_type = "multiple_entities"
-#             correct = False
-#             noise_types[error_type] += 1
-#         else:
-#             t = overlaps[0]
-#             # For exact boundary match : is the label correct ?
-#             if p["start"] == t["start"] and p["end"] == t["end"]:
-#                 if p["label"] == t["label"]:
-#                     error_type = None
-#                     correct = True
-#                 else:
-#                     error_type = "wrong_label"
-#                     correct = False
-#                     noise_types[error_type] += 1
-#             # Else : was the tagging "too little" or "too much" or "too_much_and_too_little" ?
-#             else:
-#                 error_type = "wrong_overlap"
-#                 correct = False
-#                 noise_types[error_type] += 1
-
-#         results.append(
-#             {
-#                 "start": p["start"],
-#                 "end": p["end"],
-#                 "label": p["label"],
-#                 "tag": p["tag"],
-#                 "text": p["text"],
-#                 "correct": correct,
-#                 "error_type": error_type,
-#             }
-#         )
-#         if not correct:
-#             # print(i)
-#             noise_count += 1
-#         else:
-#             correct_count += 1
-
-#         if debug:
-#             print(
-#                 f"Index : {idx} | Correct: {correct_count} | Wrong: {noise_count} |{error_type} | pred_spans : {p}"
-#             )
-
-#     # For all true spans that were not matched by a predicted span, add them to the results as "missing" for "error_type".
-#     for t in true_spans:
-#         if not any(p["start"] < t["end"] and p["end"] > t["start"] for p in pred_spans):
-#             results.append(
-#                 {
-#                     "start": t["start"],
-#                     "end": t["end"],
-#                     "label": t["label"],
-#                     "tag": t["tag"],
-#                     "text": t["text"],
-#                     "correct": False,
-#                     "error_type": "missing",
-#                 }
-#             )
-#             noise_types["missing"] += 1
-
-#     results = sorted(results, key=lambda x: (x["start"], x["end"]))
-#     precision = correct_count / n_pred if n_pred > 0 else 0
-#     recall = correct_count / n_true if n_true > 0 else 0
-#     f1 = 2 * precision * recall / (precision + recall) if precision + recall > 0 else 0
-
-#     return f1, precision, recall, correct_count, noise_count, results, noise_types
-
-
 def compute_noise(pred_spans, true_spans, debug=False):
     """
     Two-loop approach with a separate missing loop.
@@ -1131,8 +1082,8 @@ def compute_noise(pred_spans, true_spans, debug=False):
       - If no overlap is found, error_type = "invalid_tag".
       - If multiple overlaps are found, error_type = "multiple_entities".
       - If exactly one overlap is found:
-            * If the boundaries match exactly (but the prediction wasn’t marked correct), error_type = "wrong_label".
-            * Otherwise, error_type = "wrong_overlap".
+            If the boundaries match exactly (but the prediction wasn’t marked correct), error_type = "wrong_label".
+            Otherwise, error_type = "wrong_overlap".
       - However, if the tag and label match, the prediction and true span start at the same position, their end positions differ by exactly one,
         and the only difference in text is that one has an extra "s" (i.e. either candidate["text"] == pred["text"] + "s"
         or vice versa), then the prediction is treated as correct.
@@ -1167,7 +1118,7 @@ def compute_noise(pred_spans, true_spans, debug=False):
     # correct_preds: set of indices of predictions that are exact matches.
     correct_preds = set()
 
-    # ----- Loop 1: Identify correct predictions (exact match) -----
+    # Loop 1: Identify correct predictions (exact match)
     for i, p in enumerate(pred_spans):
         matched = False
         for j, t in enumerate(true_spans):
@@ -1198,7 +1149,7 @@ def compute_noise(pred_spans, true_spans, debug=False):
         if not matched and debug:
             print(f"Loop1: Prediction {i} is not correct.")
 
-    # ----- Loop 2: Process remaining predictions (errors) -----
+    # Loop 2: Process remaining predictions (errors)
     for i, p in enumerate(pred_spans):
         if i in correct_preds:
             continue  # Skip already correct predictions.
@@ -1317,7 +1268,7 @@ def compute_noise(pred_spans, true_spans, debug=False):
                 if debug:
                     print(f"Loop2: Prediction {i} => {error_type} (partial overlap).")
 
-    # ----- Loop 3: Add missing errors for true spans with no overlapping prediction -----
+    # Loop 3: Add missing errors for true spans with no overlapping prediction
     for j, t in enumerate(true_spans):
         # A true span is considered covered if any prediction overlaps it.
         overlap_found = any(
@@ -1367,39 +1318,6 @@ def find_matching_multiple_entities(true_spans, start, end):
         if not (t["end"] < start or t["start"] > end):
             matched.append(t)
     return matched
-
-
-# def find_matching_too_little(spans, start, end):
-#     # Find t in true_spans such that t["start"] <= start and t["end"] >= end
-#     # This means that the pred_span is too little
-#     return next((d for d in spans if d["start"] <= start and d["end"] >= end), None)
-
-
-# def find_matching_too_much(spans, start, end):
-#     # Find t in true_spans such that t["start"] >= start and t["end"] <= end
-#     # This means that the pred_span is too much
-#     return next((d for d in spans if d["start"] >= start and d["end"] <= end), None)
-
-# def find_wrong_overlap(true_spans, start, end):
-#     """
-#     Combine "find_matching_too_little" and "find_matching_too_much" into one function.
-#     """
-#     # Check for "too_little": predicted span is inside a true span.
-#     too_little = next(
-#         (t for t in true_spans if t["start"] <= start and t["end"] >= end), None
-#     )
-#     if too_little:
-#         return "too_little", too_little
-
-#     # Check for "too_much": predicted span contains a true span.
-#     too_much = next(
-#         (t for t in true_spans if t["start"] >= start and t["end"] <= end), None
-#     )
-#     if too_much:
-#         return "too_much", too_much
-
-#     # If no error condition applies, return None.
-#     return None, None
 
 
 def find_wrong_overlap(true_spans, pred_start, pred_end, min_overlap=1):
@@ -1692,48 +1610,6 @@ def reduce_noise(
     return new_full_results
 
 
-def create_tagged_text(abstract, pred_spans):
-    """
-    Function which modifies the abstract to include the entity:
-    Input : "DCTN4 as a modifier of chronic Pseudomonas aeruginosa infection"
-    Output : "@@DCTN4##T103@@ as a modifier of @@chronic Pseudomonas aeruginosa infection##T038@@"
-    If two or more spans overlap, only the span with the earliest start is kept.
-    -------------
-    Parameters:
-    - abstract (str): The original text
-    - pred_spans (list of dict): A list of spans with entity details (start, end, text, tag)
-
-    Returns:
-    - new_abstract (str): The text modified with entity annotations
-    """
-    # First, sort spans by start (and end if needed) in ascending order.
-    sorted_spans = sorted(pred_spans, key=lambda x: (x["start"], x["end"]))
-
-    # Build list with non overlapping spans: if a span overlaps any previously accepted one,
-    # we keep only the one with the earliest start (already accepted).
-    allowed_spans = []
-    current_end = -1  # initial value before any span is accepted
-    for span in sorted_spans:
-        if span["start"] >= current_end:
-            allowed_spans.append(span)
-            current_end = span["end"]
-
-    # For text replacement, sort allowed spans in reverse order by start.
-    allowed_spans = sorted(allowed_spans, key=lambda x: x["start"], reverse=True)
-    new_abstract = abstract
-
-    # Replace text segments with the tagged annotation.
-    for span in allowed_spans:
-        start = span["start"]
-        end = span["end"]
-        text = span["text"]
-        entity_tag = span["tag"]
-        tagged_text = f"@@{text}##{entity_tag}@@"
-        new_abstract = new_abstract[:start] + tagged_text + new_abstract[end:]
-
-    return new_abstract
-
-
 def reduce_noise_per_abstract_distribution(
     correct_count,
     noise_count,
@@ -1747,8 +1623,7 @@ def reduce_noise_per_abstract_distribution(
     seed=42,
 ):
     """
-    Reduce the noise in the predicted spans to a desired level by replacing a limited number of errors
-    based on a target error type distribution.
+    Similar to "reduce_noise_per_abstract" function but target a specific error type distribution.
 
     Parameters:
       - correct_count: int, number of correct annotations.
@@ -1935,206 +1810,6 @@ def reduce_noise_per_abstract_distribution(
     return new_spans
 
 
-# def reduce_noise_per_abstract_distribution2(
-#     correct_count,
-#     noise_count,
-#     pred_spans,
-#     true_spans,
-#     reduction,
-#     results,
-#     noise_types,
-#     errors_to_remove,
-#     debug=False,
-#     seed=42,
-# ):
-#     """
-#     Reduce the noise in the predicted spans to a desired level by replacing a limited number of errors
-#     based on a target error type distribution.
-
-#     Parameters:
-#       - correct_count: int, number of correct annotations.
-#       - noise_count: int, number of incorrect annotations.
-#       - pred_spans / true_spans: list of dicts with keys: start, end, label, tag, text.
-#       - reduction: float, fraction by which the noise is reduced.
-#           For example, if the original noise is 30% and reduction is 0.5, the new noise will be 15%.
-#       - results: list of dicts (evaluation results) with keys: start, end, label, tag, text, correct, error_type.
-#       - noise_types: dict with counts per error type, e.g.
-#            {"wrong_label": 2, "wrong_overlap": 7, "multiple_entities": 0, "invalid_tag": 19, "missing": 8}
-#       - errors_to_remove: dict with target removals per error type, e.g.
-#            {"wrong_label": 0, "wrong_overlap": 9, "multiple_entities": 0, "invalid_tag": 5, "missing": 0}
-#       - debug: boolean flag to print debug information.
-#       - seed: int, seed for randomness.
-
-#     Returns:
-#       - new_spans: list of dicts, the updated predicted spans after noise reduction.
-#     """
-#     import random
-
-#     # Initialize counts from inputs.
-#     n_pred = len(pred_spans)
-#     n_true = len(true_spans)
-#     if debug:
-#         print(
-#             f"Initial n_pred: {n_pred} | Correct: {correct_count} | Noise: {noise_count}"
-#         )
-
-#     # Calculate precision, recall, F1, and define noise.
-#     precision = correct_count / n_pred if n_pred > 0 else 0
-#     recall = correct_count / n_true if n_true > 0 else 0
-#     f1 = (
-#         2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
-#     )
-#     noise = 1 - f1
-
-#     # Set a noise goal by reducing the original noise by the given fraction.
-#     noise_goal = noise * (1 - reduction)
-
-#     # Determine the allowed number of removals per error type.
-#     allowed_removals = {}
-#     for err, target in errors_to_remove.items():
-#         if target > 0 and noise_types.get(err, 0) > 0:
-#             allowed_removals[err] = min(target, noise_types[err])
-
-#     # Track the number of errors fixed per error type.
-#     fixed_errors = {err: 0 for err in errors_to_remove.keys()}
-
-#     new_spans = []
-
-#     # Pre-add all "correct" spans from results to new_spans.
-#     for result in results:
-#         if result["correct"]:
-#             correct_span = find_exact_matching(
-#                 pred_spans, result["start"], result["end"]
-#             )
-#             if correct_span is not None and correct_span not in new_spans:
-#                 new_spans.append(correct_span)
-#             if debug:
-#                 print(f"Added correct span at start: {result['start']}-{result['end']}")
-
-#     # Filter out the correct results so they are not processed again.
-#     non_correct_results = [res for res in results if not res["correct"]]
-
-#     # Shuffle the non-correct results so corrections occur in a random order.
-#     random.seed(seed)
-#     random.shuffle(non_correct_results)
-
-#     for idx, result in enumerate(non_correct_results):
-#         err_type = result["error_type"]
-#         # If the error type is targeted for removal and we haven't exceeded limits,
-#         # and if the current noise is still above our noise goal, then correct the error.
-#         if (
-#             err_type in allowed_removals
-#             and fixed_errors[err_type] < allowed_removals[err_type]
-#             and noise > noise_goal
-#         ):
-#             if err_type == "invalid_tag":
-#                 if debug:
-#                     print(f"Index: {idx} | Correcting invalid_tag error")
-#                 n_pred -= 1
-#                 noise_count -= 1
-#                 fixed_errors["invalid_tag"] += 1
-
-#             elif err_type == "wrong_label":
-#                 correct_span = find_exact_matching(
-#                     true_spans, result["start"], result["end"]
-#                 )
-#                 if correct_span is not None and correct_span not in new_spans:
-#                     new_spans.append(correct_span)
-#                     correct_count += 1
-#                     noise_count -= 1
-#                 fixed_errors["wrong_label"] += 1
-
-#             elif err_type == "missing":
-#                 correct_span = find_exact_matching(
-#                     true_spans, result["start"], result["end"]
-#                 )
-#                 if correct_span is not None and correct_span not in new_spans:
-#                     new_spans.append(correct_span)
-#                     n_pred += 1
-#                     correct_count += 1
-#                 fixed_errors["missing"] += 1
-
-#             elif err_type == "wrong_overlap":
-#                 error_type_name, correct_span = find_wrong_overlap(
-#                     true_spans, result["start"], result["end"]
-#                 )
-#                 if correct_span is not None and correct_span not in new_spans:
-#                     new_spans.append(correct_span)
-#                     correct_count += 1
-#                     noise_count -= 1
-#                 fixed_errors["wrong_overlap"] += 1
-
-#             elif err_type == "multiple_entities":
-#                 if debug:
-#                     print(f"Index: {idx} | Correcting multiple_entities error")
-#                 matches = find_matching_multiple_entities(
-#                     true_spans, result["start"], result["end"]
-#                 )
-#                 adds = 0
-#                 noise_reduction = False
-#                 for j, match in enumerate(matches):
-#                     if match is not None and match not in new_spans:
-#                         new_spans.append(match)
-#                         adds += 1
-#                         noise_reduction = True
-#                 if noise_reduction:
-#                     noise_count -= 1
-#                 n_pred += adds - 1
-#                 correct_count += adds
-#                 fixed_errors["multiple_entities"] += 1
-
-#             else:
-#                 # If error type is unknown, fall back to using the predicted span.
-#                 correct_span = find_exact_matching(
-#                     pred_spans, result["start"], result["end"]
-#                 )
-#                 if correct_span is not None and correct_span not in new_spans:
-#                     new_spans.append(correct_span)
-#         else:
-#             # If the error is not scheduled for correction or limits have been reached,
-#             # simply use the predicted span.
-#             span = find_exact_matching(pred_spans, result["start"], result["end"])
-#             if span is not None and span not in new_spans:
-#                 new_spans.append(span)
-
-#         # Recompute metrics after processing each result.
-#         precision = correct_count / n_pred if n_pred > 0 else 0
-#         recall = correct_count / n_true if n_true > 0 else 0
-#         f1 = (
-#             2 * precision * recall / (precision + recall)
-#             if (precision + recall) > 0
-#             else 0
-#         )
-#         noise = 1 - f1
-
-#         if debug:
-#             print(
-#                 f"After index {idx} | n_pred: {n_pred} | Correct: {correct_count} | Noise: {noise_count} | "
-#                 f"Precision: {precision:.3f} | Recall: {recall:.3f} | F1: {f1:.3f} | Noise metric: {noise:.3f}"
-#             )
-
-#     # for span in new_spans:
-#     #     err_type = result["error_type"]
-#     #     if err_type == "wrong_overlap":
-#     #         error_type_name, correct_span = find_wrong_overlap(
-#     #             true_spans, result["start"], result["end"]
-#     #         )
-#     #         if correct_span in new_spans:
-#     #             new_spans.remove(span)
-
-#     new_spans = sorted(new_spans, key=lambda x: (x["start"], x["end"]))
-
-#     if debug:
-#         print(
-#             f"\nFinal metrics: n_pred: {n_pred} | Correct: {correct_count} | Noise: {noise_count} | n_true: {n_true}"
-#         )
-#         print(
-#             f"Final scores: Precision: {precision:.3f} | Recall: {recall:.3f} | F1: {f1:.3f} | Noise: {noise:.3f}"
-#         )
-
-#     return new_spans
-
-
 def compute_noise_coefficient(
     wanted_noise: float,
     error_analysis: dict,
@@ -2291,219 +1966,6 @@ def compute_noise_coefficient(
     )
 
 
-# def reduce_noise_distribution(
-#     full_results,
-#     wanted_noise,
-#     reduction,
-#     total_n_true,
-#     total_noise_types,
-#     target_numbers,
-#     debug=False,
-#     priority_threshold=0.5,  # New parameter: threshold for aggressive removal.
-# ):
-#     """
-#     Reduce the noise of the entire dataset so that the final overall noise (1 - f1) is as desired,
-#     and such that the errors that remain follow the given target numbers.
-#     This version now targets error types with high remaining removal budgets by dynamically
-#     adjusting the per-abstract removal factor.
-
-#     Parameters:
-#       - full_results: list of dicts, each corresponding to an abstract.
-#       - wanted_noise: float, overall desired noise ratio.
-#       - reduction: float, fraction by which to reduce noise per abstract in the standard case.
-#       - total_n_true: int, total number of true spans in the whole dataset.
-#       - total_noise_types: dict, counts of errors per type for the whole dataset.
-#       - target_numbers: dict, desired final count for each error type.
-#       - debug: bool, if True prints debugging information.
-#       - priority_threshold: float, if the ratio of remaining errors to total errors of a type exceeds
-#            this threshold, that error type is treated as high priority and removed more aggressively.
-#     Returns:
-#       - new_full_results: list of dicts with noise reduced per abstract.
-#     """
-#     import random
-
-#     # Step 1: Set up the global removal budget.
-#     errors_to_remove_global = {}
-#     for err_type, total in total_noise_types.items():
-#         if err_type not in target_numbers:
-#             errors_to_remove_global[err_type] = 0
-#         else:
-#             desired_final = target_numbers[err_type]
-#             if desired_final > total:
-#                 raise AssertionError(
-#                     f"Target number for error type '{err_type}' is greater than the total available. "
-#                     f"Target: {desired_final}, total: {total}."
-#                 )
-#             errors_to_remove_global[err_type] = total - desired_final
-
-#     if debug:
-#         print("Global errors to remove (per type):", errors_to_remove_global)
-
-#     # Step 2: Compute overall counts and global metrics.
-#     current_noise_count = sum(item["noise_count"] for item in full_results)
-#     current_correct_count = sum(item["correct_count"] for item in full_results)
-#     precision = (
-#         current_correct_count / (current_correct_count + current_noise_count)
-#         if (current_correct_count + current_noise_count) > 0
-#         else 0
-#     )
-#     recall = current_correct_count / total_n_true if total_n_true > 0 else 0
-#     f1 = (
-#         2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0
-#     )
-#     current_noise = 1 - f1
-
-#     print("Initial correct counts :", current_correct_count)
-#     print("Initial noise counts   :", current_noise_count)
-#     print("Initial global noise   :", current_noise)
-
-#     # Step 3: Perform multiple passes over the abstracts.
-#     max_passes = 5
-#     pass_num = 0
-#     new_full_results = [dict(abstract) for abstract in full_results]
-
-#     while current_noise > wanted_noise and pass_num < max_passes:
-#         if debug:
-#             print(f"\nStarting pass {pass_num + 1}, global noise = {current_noise:.4f}")
-#         improved_overall = False
-
-#         for idx, abstract in enumerate(new_full_results):
-#             # Compute error type counts for this abstract.
-#             abs_noise_types = {}
-#             for span in abstract["results"]:
-#                 if not span["correct"]:
-#                     err = span["error_type"]
-#                     abs_noise_types[err] = abs_noise_types.get(err, 0) + 1
-
-#             # Build a per-abstract removal plan.
-#             errors_to_remove_abstract = {}
-#             for err, count in abs_noise_types.items():
-#                 if err in errors_to_remove_global:
-#                     # Compute how many of this error type remain to be removed relative to total available.
-#                     global_ratio = errors_to_remove_global[err] / total_noise_types.get(
-#                         err, 1
-#                     )
-#                     if global_ratio > priority_threshold:
-#                         # High priority: remove as many as possible (up to available and global budget)
-#                         candidate = min(count, errors_to_remove_global[err])
-#                     else:
-#                         # Lower priority: use the standard reduction factor.
-#                         candidate = int(round(reduction * count))
-#                         candidate = min(candidate, errors_to_remove_global[err])
-#                     errors_to_remove_abstract[err] = candidate
-#                 else:
-#                     errors_to_remove_abstract[err] = 0
-
-#             if debug:
-#                 print("Processing abstract pmid:", abstract["pmid"])
-#                 print("  Abstract error counts     :", abs_noise_types)
-#                 print("  Errors to remove in abstract:", errors_to_remove_abstract)
-
-#             # If this abstract has errors that can be removed, attempt reduction.
-#             if any(v > 0 for v in errors_to_remove_abstract.values()):
-#                 new_spans = reduce_noise_per_abstract_distribution(
-#                     correct_count=abstract["correct_count"],
-#                     noise_count=abstract["noise_count"],
-#                     pred_spans=abstract["pred_spans"],
-#                     true_spans=abstract["true_spans"],
-#                     reduction=reduction,
-#                     results=abstract["results"],
-#                     noise_types=abs_noise_types,
-#                     errors_to_remove=errors_to_remove_abstract,
-#                     debug=False,
-#                     seed=42,
-#                 )
-#                 (
-#                     new_f1,
-#                     new_precision,
-#                     new_recall,
-#                     new_correct_count,
-#                     new_noise_count,
-#                     new_results,
-#                     new_abs_noise_types,
-#                 ) = compute_noise(new_spans, abstract["true_spans"])
-
-#                 # Check if removals occurred.
-#                 if new_noise_count < abstract["noise_count"]:
-#                     improved_overall = True
-#                     reduction_in_abstract_noise = (
-#                         abstract["noise_count"] - new_noise_count
-#                     )
-
-#                     # Update global counts.
-#                     current_noise_count -= reduction_in_abstract_noise
-#                     current_correct_count -= (
-#                         abstract["correct_count"] - new_correct_count
-#                     )
-
-#                     # Recompute global metrics.
-#                     precision = (
-#                         current_correct_count
-#                         / (current_correct_count + current_noise_count)
-#                         if (current_correct_count + current_noise_count) > 0
-#                         else 0
-#                     )
-#                     recall = (
-#                         current_correct_count / total_n_true if total_n_true > 0 else 0
-#                     )
-#                     f1 = (
-#                         2 * precision * recall / (precision + recall)
-#                         if (precision + recall) > 0
-#                         else 0
-#                     )
-#                     current_noise = 1 - f1
-
-#                     # Update the global removal budget.
-#                     for err in errors_to_remove_global.keys():
-#                         original = abs_noise_types.get(err, 0)
-#                         new_count = new_abs_noise_types.get(err, 0)
-#                         removed = original - new_count
-#                         errors_to_remove_global[err] = max(
-#                             errors_to_remove_global[err] - removed, 0
-#                         )
-
-#                     # Update the abstract's data.
-#                     updated_abstract = {
-#                         "pmid": abstract["pmid"],
-#                         "noise": 1 - new_f1,
-#                         "f1": new_f1,
-#                         "precision": new_precision,
-#                         "recall": new_recall,
-#                         "correct_count": new_correct_count,
-#                         "noise_count": new_noise_count,
-#                         "pred_spans": new_spans,
-#                         "true_spans": abstract["true_spans"],
-#                         "results": new_results,
-#                         "noise_types": new_abs_noise_types,
-#                     }
-#                     new_full_results[idx] = updated_abstract
-#                     if debug:
-#                         print(
-#                             f" Updated abstract noise count: {new_noise_count} (Former {abstract['noise_count']})"
-#                         )
-#                         print(
-#                             f" Updated abstract correct count: {new_correct_count} (Former {abstract['correct_count']})"
-#                         )
-#                         print(
-#                             "  Global remaining removal budget:",
-#                             errors_to_remove_global,
-#                         )
-#                         print("  Global current noise:", current_noise)
-#         pass_num += 1
-#         if not improved_overall:
-#             if debug:
-#                 print(
-#                     "No further improvements in this pass; stopping additional passes."
-#                 )
-#             break
-
-#     print("Final correct count :", current_correct_count)
-#     print("Final noise count   :", current_noise_count)
-#     print("Final global noise  :", current_noise)
-#     print("Number of passes completed :", pass_num)
-#     return new_full_results
-
-
 def reduce_noise_distribution(
     full_results,
     wanted_noise,
@@ -2514,8 +1976,7 @@ def reduce_noise_distribution(
     debug=False,
 ):
     """
-    Reduce the noise of the entire dataset so that the final overall noise (1 - f1) is as desired,
-    and such that the errors that remain follow the given target numbers.
+    Similar to "reduce_noise" function but such that the remaining errors follow the given target numbers.
 
     Parameters:
       - full_results: list of dicts, each corresponding to an abstract. Each dict should contain:
@@ -2716,27 +2177,3 @@ def reduce_noise_distribution(
         idx += 1
 
     return new_full_results
-
-
-def fuse_adjacent_tag(true_spans):
-    """
-    Merge adjacent true spans that have the same label and tag.
-    """
-    if len(true_spans) == 0:
-        return []
-    new_true_spans = []
-    prev = true_spans[0]
-    for t in true_spans[1:]:
-        if prev["tag"] == t["tag"] and prev["end"] + 1 == t["start"]:
-            prev = {
-                "start": prev["start"],
-                "end": t["end"],
-                "label": prev["label"],
-                "tag": prev["tag"],
-                "text": prev["text"] + " " + t["text"],
-            }
-        else:
-            new_true_spans.append(prev)
-            prev = t
-    new_true_spans.append(prev)
-    return new_true_spans

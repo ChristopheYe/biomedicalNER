@@ -10,7 +10,6 @@ def main():
     from transformers import (
         AutoTokenizer,
         AutoModelForCausalLM,
-        Gemma3ForConditionalGeneration,
     )
     from vllm import LLM, SamplingParams
 

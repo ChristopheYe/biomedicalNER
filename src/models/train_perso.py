@@ -1,5 +1,5 @@
 """
-Train and evaluate NER models on MM-ST21PV / bc5cdr dataset
+Train and evaluate NER models dataset
 """
 
 import numpy as np
@@ -137,14 +137,12 @@ else:
     output_dir = f"outputs/{dataset_name}_{model_subname}_{version}"
 
 
-# dataset_name = "ontonotes"
-
-max_length = 512  # 1024
+max_length = 512
 batch_size = 16
 
 tokenizer = AutoTokenizer.from_pretrained(hf_model)
 
-data_path = f"/home2/cye73/noisyNER/noisyNER/data2/{dataset_name}/{dataset_name}.json"
+data_path = f"../data2/{dataset_name}/{dataset_name}.json"
 data = ujson.load(open(data_path))
 
 tag2label_full = {
@@ -213,7 +211,7 @@ training_args = TrainingArguments(
     warmup_ratio=0.2,
     evaluation_strategy="epoch",
     save_strategy="epoch",  # Save checkpoints at the end of each epoch
-    save_total_limit=1,  # Keep only the best checkpoint
+    save_total_limit=1,  # Keep only THE best checkpoint
     load_best_model_at_end=True,
     metric_for_best_model="f1",
     logging_strategy="epoch",

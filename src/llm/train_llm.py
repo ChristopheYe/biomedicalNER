@@ -20,10 +20,8 @@ import numpy as np
 import torch
 import random
 import gzip
-
 from tqdm import tqdm
 from typing import Optional
-
 from sentence_transformers import SentenceTransformer, util
 from torch.utils.data import Dataset, DataLoader
 from transformers import (
@@ -32,20 +30,10 @@ from transformers import (
     PreTrainedTokenizer,
     AutoConfig,
 )
-from accelerate import (
-    init_empty_weights,
-    infer_auto_device_map,
-    load_checkpoint_and_dispatch,
-)
 from peft import LoraConfig, get_peft_model, PeftModel
-
-
 from data_utils import *
 
-# Set up logging configuration
 logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
-
-# from vllm import LLM, SamplingParams
 import matplotlib.pyplot as plt
 
 # Check GPU availability
@@ -101,7 +89,7 @@ class DatasetNER(Dataset):
             {
                 "role": "assistant",
                 "content": wrapped_answer,
-            },  # Include the gold answer for supervised fine-tuning
+            },
         ]
         chat_input = self.tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=False
@@ -116,13 +104,12 @@ class DatasetNER(Dataset):
             return_tensors="pt",
         )
 
-        input_ids = encoding["input_ids"].squeeze(0)  # [1, max_length] -> [max_length]
+        input_ids = encoding["input_ids"].squeeze(0)
         attention_mask = encoding["attention_mask"].squeeze(0)
-
         # Mask out the prompt (excluding assistant's content) in the labels
         chat_input = self.tokenizer.apply_chat_template(messages[:-1], tokenize=False)
         tokenized_input = self.tokenizer(chat_input, return_tensors="pt")
-        prompt_length = tokenized_input["input_ids"].size(1)  # [1, prompt_length]
+        prompt_length = tokenized_input["input_ids"].size(1)
         # print("prompt_length : ", prompt_length)
 
         label = input_ids.clone()
@@ -290,7 +277,7 @@ def main():
             optimizer.zero_grad()
 
             print(f"Epoch: {epoch+1}, Batch:{idx}, Training Loss: {loss.item()}")
-            del loss, outputs  # <- prevent holding onto graph
+            del loss, outputs  # save some space
             torch.cuda.empty_cache()
 
             if idx == batches_limit:

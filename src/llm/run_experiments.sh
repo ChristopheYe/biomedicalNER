@@ -1,12 +1,9 @@
 #!/bin/bash
 
-# Define the parameter values to iterate over
-K_VALUES=(10)  # Different values for k
-NOISE_LEVELS=(0.1 0.2 0.3 0.4 0.5 0.6 1)  # Different noise levels
+# Parameter values to iterate over
+K_VALUES=(10)  # Number of examples k
+NOISE_LEVELS=(0.1 0.2 0.3 0.4 0.5 0.6 1)  # Noise levels
 # NUMBER_SUBSETS=(20 40 100 263)  # Size of the dataset subset to use
-
-# # Set GPU devices
-# export CUDA_VISIBLE_DEVICES=2,3
 
 # Create log directory if it doesn't exist
 mkdir -p run_logs

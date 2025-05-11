@@ -38,12 +38,11 @@ class DatasetNER(Dataset):
             spans = entry.get("spans", [])
 
             # Tokenize the text with overflow handling.
-            # The stride (here set to 50) can be adjusted or removed if you don't want overlapping tokens.
             tokenized = self.tokenizer(
                 text,
                 truncation=True,
                 max_length=self.max_length,
-                # stride=50,  # Optional: adjust for overlap if desired
+                # stride=50,  # For overlaping tokens if desired
                 return_overflowing_tokens=True,
                 return_offsets_mapping=True,
             )
@@ -85,7 +84,6 @@ class DatasetNER(Dataset):
                     if start == end:
                         labels[k] = -100
 
-                # Convert labels to numerical IDs.
                 label_ids = [
                     self.label2id[label] if isinstance(label, str) else -100
                     for label in labels
@@ -141,8 +139,8 @@ def create_label2id(data: List[Dict], tags: List) -> Dict[str, int]:
             tag = span["tag"]
             if tag not in tags:
                 continue
-            unique_labels.add(f"B-{tag}")  # Beginning tag
-            unique_labels.add(f"I-{tag}")  # Inside tag
+            unique_labels.add(f"B-{tag}")
+            unique_labels.add(f"I-{tag}")
 
     # Create label2id dictionary sorted alphabetically for consistent order
     return {label: idx for idx, label in enumerate(sorted(unique_labels))}
