@@ -11,13 +11,16 @@ pip install -e .
 ```
 
 ## Data
-`data` repository contains all datasets in the format for LLM training/inference
-`data2` repository contains all datasets in the format for BERT-based models training/inference
+The `data/` directory contains all datasets formatted for training and inference with LLMs.
+
+The `data2/` directory contains all datasets formatted for training and inference with BERT-based models.
 
 ## Models
 
 ### LLMs
-`llm` repository contains the scripts for training (`train_llm`) and inference (`inference3.py`)
+The `llm/` directory contains scripts for:
+Training: `train_llm.py`
+Inference: `inference3.py`
 
 ### BERT-based models
-`models` repository contains the scripts for training (`train_perso`)
+`models` directory contains the scripts for training (`train_perso`)
