@@ -1,0 +1,25 @@
+You need to labels ALL text that fall in of these categories: 
+
+{Extraction Prompts}
+
+This is the specific abstract that you need to tag:
+
+{Abstract}
+
+Entities must be tagged in this format : 
+
+{Format Spans}
+
+To assist you, here are a few examples of tagged abstracts. However, they contain noise, so focus on their structure and format rather than their accuracy:
+
+{Top K Examples}
+
+{Annotation Instructions}
+
+Return the answer in a JSON format.
+An example of valid answer look like this :
+
+**Final Output**
+```json
+{"output": text ... @@mention##entity@@ ... text}
+```

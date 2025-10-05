@@ -401,33 +401,31 @@ def generate_prompt_text(
     noise : bool (whether the examples are noisy)
     """
 
-    prompt = f"""
-    You need to labels ALL text that fall in of these categories: {extraction_prompts}.\n
-    This is the specific abstract that you need to tag:
-    {abstract}\n
-    Entities must be tagged in this format : {format_spans}"""
-    "here are a few examples of correctly tagged abstracts"
+    if noise:
+        with open("prompts/Prompt_noisy_data.txt", "r") as file:
+            prompt = file.read()
+    else:
+        with open("prompts/Prompt_gold_data.txt", "r") as file:
+            prompt = file.read()
 
-    example_instructions = (
-        "here are a few examples of correctly tagged abstracts."
-        if not noise
-        else "here are a few examples of tagged abstracts. However, they contain noise, so focus on their structure and format rather than their accuracy."
-    )
-
-    prompt += f"""
-    To assist you, {example_instructions}:\n{topk_examples}\n
-    {annotation_instructions}
-    """
-    prompt += """
-    Return the answer in a JSON format.
-    An example of valid answer look like this :
-        **Final Output**
-        ```json
-        {"output": text ... @@mention##entity@@ ... text}
-        ```
-    """
+    prompt = prompt.replace("{Extraction Prompts}", str(extraction_prompts))
+    prompt = prompt.replace("{Abstract}", abstract)
+    prompt = prompt.replace("{Format Spans}", format_spans)
+    prompt = prompt.replace("{Annotation Instructions}", annotation_instructions)
+    prompt = prompt.replace("{Top K Examples}", str(topk_examples))
 
     return prompt
+
+
+### Test for reducing hallucinations for Llama
+""" 
+Rules:
+- Do NOT rewrite, summarize, or rephrase the text.
+- Keep the text exactly as provided (including line breaks, typos, and formatting).
+- The ONLY change you are allowed to make is to insert annotations in the format @@mention##ENTITY@@ into the original text.
+- The output must be identical to the input text, except for these inserted annotations.
+- Annotate both title and abstract.
+"""
 
 
 def prompt_vllm(system_instructions, llm, tokenizer, sampling_params, prompt):
