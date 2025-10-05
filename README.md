@@ -5,7 +5,7 @@
 In order to run this, please install the following conda environment : 
 
 ```bash
-conda create -n bioner python=3.9
+conda create -n bioner python=3.10
 conda activate bioner
 pip install -e .
 ```
