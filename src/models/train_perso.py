@@ -103,13 +103,18 @@ model_subname = "BioLinkBERT-base"
 # hf_model = "dmis-lab/biobert-base-cased-v1.2"
 # model_subname = "BioBERT-base"
 
+# hf_model = "emilyalsentzer/Bio_ClinicalBERT"
+# model_subname = "Bio_ClinicalBERT"
+
 # subset = 100  # Using only a subset of the data
 # dataset_name = "mm_st21pv"
 # dataset_name = "ebm_pico"
 # dataset_name = "pico_extraction"
 # dataset_name = "ncbi_disease"
-dataset_name = "bc5cdr"
-version = "v2"
+# dataset_name = "bc5cdr"
+dataset_name = "mtsamples"
+# dataset_name = "vaers"
+version = "v3"
 
 # # For loading already trained models
 # llm = "mistral3"
@@ -137,8 +142,28 @@ else:
     output_dir = f"outputs/{dataset_name}_{model_subname}_{version}"
 
 
-max_length = 512
-batch_size = 16
+max_length = 256 # 512
+batch_size = 4 # 16
+
+# Train model
+training_args = TrainingArguments(
+    output_dir=output_dir,
+    learning_rate= 5e-5,  # 5e-4,  # 1e-4,  # 5e-4, # 2e-5,
+    per_device_train_batch_size=batch_size,
+    per_device_eval_batch_size=batch_size,
+    num_train_epochs= 20,  # 30,  # 50,  # 30 # 100
+    weight_decay=0.01,
+    warmup_ratio=0.2,
+    eval_strategy="epoch",  # Changed from evaluation_strategy to eval_strategy
+    save_strategy="epoch",  # Save checkpoints at the end of each epoch
+    save_total_limit=1,  # Keep only THE best checkpoint
+    load_best_model_at_end=True,
+    metric_for_best_model="f1",
+    logging_strategy="epoch",
+    report_to="wandb",
+)
+
+print("Training arguments \n batch size :", batch_size, "learning rate:", training_args.learning_rate, "num_train_epochs:", training_args.num_train_epochs, "weight_decay:", training_args.weight_decay, "warmup_ratio:", training_args.warmup_ratio)
 
 tokenizer = AutoTokenizer.from_pretrained(hf_model)
 
@@ -151,6 +176,8 @@ tag2label_full = {
     "ebm_pico": tag2label_pico,
     "pico_extraction": tag2label_pico,
     "ncbi_disease": tag2label_ncbi,
+    "mtsamples": tag2label_mtsamples,
+    "vaers": tag2label_vaers,
 }
 tags = [tag for tag in tag2label_full[dataset_name]]
 
@@ -199,24 +226,6 @@ print("label2id size:", len(label2id))
 print("label2id :", label2id)
 
 model.config.num_labels = len(id2label)
-
-# Train model
-training_args = TrainingArguments(
-    output_dir=output_dir,
-    learning_rate=5e-4,  # 1e-4,  # 5e-4, # 2e-5,
-    per_device_train_batch_size=batch_size,
-    per_device_eval_batch_size=batch_size,
-    num_train_epochs=30,  # 50,  # 30 # 100
-    weight_decay=0.01,
-    warmup_ratio=0.2,
-    evaluation_strategy="epoch",
-    save_strategy="epoch",  # Save checkpoints at the end of each epoch
-    save_total_limit=1,  # Keep only THE best checkpoint
-    load_best_model_at_end=True,
-    metric_for_best_model="f1",
-    logging_strategy="epoch",
-    report_to="wandb",
-)
 
 # combined_dataset = ConcatDataset([valid_dataset, test_dataset])  # Merges datasets
 

@@ -47,6 +47,8 @@ else:
 
 max_length = {
     "mm_st21pv": 9000,
+    "mtsamples": 2000,
+    "vaers": 2000,
 }
 
 
@@ -61,6 +63,10 @@ class DatasetNER(Dataset):
         self.data = [data[pmid] for pmid in data if data[pmid]["split"] == split]
         self.tokenizer = tokenizer
 
+        # # *** IMPORTANT FIX ***
+        # self.tokenizer.padding_side = "right"     # no stupid left padding
+        # self.tokenizer.truncation_side = "left"   # keep the answer
+        
         self.max_length = max_length
 
         if isinstance(data, torch.utils.data.Subset):
@@ -77,11 +83,16 @@ class DatasetNER(Dataset):
         Only answer questions using data explicitly present in given studies."""
 
         item = self.data[idx]
-        prompt = item["prompt"]
-        answer = item["output"]
+        prompt = item[
+            "prompt"
+        ]  # Example : prompt = "You need to labels ALL text that fall in of these categories: etc..."
+        answer = item[
+            "output"
+        ]  # Example : prompt = "Nonylphenol diethoxylate inhibits @@apoptosis##T038@@"
         wrapped_answer = (
             "```json\n" + json.dumps({"output": answer}, indent=2) + "\n```"
-        )
+        )  # Wrapping the answer inside a JSON code block ensures the model learns to produce properly structured JSON-like outputs during training.
+        
         # Apply chat template for consistency with inference
         messages = [
             {"role": "system", "content": system_instructions},
@@ -94,8 +105,8 @@ class DatasetNER(Dataset):
         chat_input = self.tokenizer.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=False
         )
-
-        # Tokenize the input
+        
+        # Tokenize the chat_input
         encoding = self.tokenizer(
             chat_input,
             max_length=self.max_length,
@@ -103,17 +114,22 @@ class DatasetNER(Dataset):
             truncation=True,
             return_tensors="pt",
         )
+        # The tokenizer converts the text into tokens and maps each token to its corresponding ID.
+        # Example of intermediate tokenization : [["<|system|>", "You", "are", "a", "doctor", ".", "<|user|>", "Label", "diseases", "."]]
+        # Example of final encoded version with token IDs: [[101, 1020, 2103, 185, 312, ...]]
 
+        # Squeeze the batch dimension (from shape [1, seq_len] -> [seq_len]) since we return a single example, not a batch.
         input_ids = encoding["input_ids"].squeeze(0)
         attention_mask = encoding["attention_mask"].squeeze(0)
-        # Mask out the prompt (excluding assistant's content) in the labels
-        chat_input = self.tokenizer.apply_chat_template(messages[:-1], tokenize=False)
+        # ----- Create label mask -----
+        # We want the model to predict only the assistant’s output (the answer), not the prompt or system text. So we compute the length of the prompt portion.
+        chat_input = self.tokenizer.apply_chat_template(
+            messages[:-1], tokenize=False
+        )  # Include everything except the answer content : {"role": "assistant", "content": wrapped_answer}
         tokenized_input = self.tokenizer(chat_input, return_tensors="pt")
         prompt_length = tokenized_input["input_ids"].size(1)
-        # print("prompt_length : ", prompt_length)
-
         label = input_ids.clone()
-        label[:prompt_length] = -100
+        label[:prompt_length] = -100  # Mask out the prompt tokens to ignore during loss calculation
 
         return {
             "input_ids": input_ids,
@@ -126,27 +142,38 @@ def main():
     device_1 = torch.device("cuda:0")
 
     ######### DATASET #########
-    # dataset_name = "mm_st21pv"
-    # dataset_dir = "mm_st21pv"
-    # extraction_prompts = extraction_prompts_st21pv_v2
-    # tag_to_label = tag2label_st21pv
+    dataset_name = "mm_st21pv"
+    dataset_dir = "mm_st21pv"
+    extraction_prompts = extraction_prompts_st21pv_v2
+    tag_to_label = tag2label_st21pv
 
     # dataset_name = "ncbi_disease"
     # dataset_dir = "ncbi_disease"
     # extraction_prompts = extraction_prompts_ncbi
     # tag_to_label = tag2label_ncbi
 
-    dataset_name = "bc5cdr"
-    dataset_dir = "bc5cdr"
-    extraction_prompts = extraction_prompts_bc5cdr
-    tag_to_label = tag2label_bc5cdr
+    # dataset_name = "bc5cdr"
+    # dataset_dir = "bc5cdr"
+    # extraction_prompts = extraction_prompts_bc5cdr
+    # tag_to_label = tag2label_bc5cdr
+    
+    # dataset_name = "mtsamples"
+    # dataset_dir = "mtsamples"
+    # extraction_prompts = extraction_prompts_mtsamples
+    # tag_to_label = tag2label_mtsamples    
+    
+    # dataset_name = "vaers"
+    # dataset_dir = "vaers"
+    # extraction_prompts = extraction_prompts_vaers
+    # tag_to_label = tag2label_vaers     
 
     data_path = f"../data/{dataset_name}/{dataset_name}.json"
     data = ujson.load(open(data_path))
     pmids_test = [pmid for pmid in data if data[pmid]["split"] == "test"]
-    pmids_test = pmids_test[:40]
+    pmids_test = pmids_test # pmids_test[:40]
     pmids_valid = [pmid for pmid in data if data[pmid]["split"] == "validation"]
-    pmids_valid = pmids_valid[:40]  # (40 abstracts takes 30mins)
+    # pmids_valid = pmids_valid[:40]  # (40 abstracts takes 30mins)
+    pmids_valid = pmids_valid[:80]  # For MM-ST21PV (80 abstracts takes 1h)
     system_instructions = """You are a medical doctor who specializes in clinical trials and observational studies.
     You will act as an expert annotator of research articles provided to you.
     Only answer questions using data explicitly present in given studies.
@@ -155,6 +182,7 @@ def main():
 
     dynamic = True  # dynamic few-shot (not static prompt)
     version = "v1"
+    lora_version = "v3" # v1 : target_modules=["q_proj", "v_proj"]; v2 : target_modules=["gate_proj", "up_proj", "down_proj"]; v3 : target_modules=["gate_proj", "up_proj", "down_proj", "q_proj", "v_proj"]
 
     data_train = {k: v for k, v in data.items() if v["split"] == "train"}
 
@@ -183,6 +211,7 @@ def main():
     best_f1_score = 0.0
 
     llm_name = "mrfakename/mistral-small-3.1-24b-instruct-2503-hf"
+    # llm_name = "google/gemma-3-27b-it"
 
     # Load base model (use float16, not float8)
     llm = AutoModelForCausalLM.from_pretrained(
@@ -201,10 +230,12 @@ def main():
     # LoRA configuration
     lora_config = LoraConfig(
         r=128,
-        lora_alpha=32,
+        lora_alpha=32, # Standard practice from other implementations (similar to tinker)
         lora_dropout=0.05,
         bias="none",
-        target_modules=["q_proj", "v_proj"],
+        # target_modules=["q_proj", "v_proj"],
+        target_modules=["gate_proj", "up_proj", "down_proj"],
+        # target_modules=["gate_proj", "up_proj", "down_proj", "q_proj", "v_proj"],
     )
 
     llm = get_peft_model(llm, lora_config)
@@ -232,18 +263,18 @@ def main():
     # llm = adapter.merge_and_unload()
 
     # Load dataset
-    k = 3
+    k = 0
     with open(f"../data_finetune_llm/{dataset_name}_k={k}_true.json") as f:
         dataset = json.load(f)
 
     train_dataset = DatasetNER(
-        data=dataset, split="train", tokenizer=tokenizer, max_length=5000
+        data=dataset, split="train", tokenizer=tokenizer, max_length= 2800 # 1000 # 2000 #5000
     )
     # valid_dataset = DatasetNER(
     #     data=dataset, split="validation", tokenizer=tokenizer, max_length=2500
     # )
 
-    batch_size = 3
+    batch_size = 5
     train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     # valid_dataloader = DataLoader(valid_dataset, batch_size=batch_size, shuffle=False)
     print("Number of training batches : ", len(train_dataloader))
@@ -251,9 +282,9 @@ def main():
     optimizer = torch.optim.Adam(llm.parameters(), lr=1e-4)
 
     nb_epochs = 15
-    batches_limit = 3000
+    batches_limit = 3003  # Limit number of batches per epoch for faster training
     llm_subname = (
-        f"tfinetuned_{dataset_name}_k={k}_true_batches={batches_limit}x{batch_size}"
+        f"tfinetuned_{dataset_name}_k={k}_true_batches={batches_limit}x{batch_size}_lora_{lora_version}"
     )
     save_dir = f"./t_Finetuned/{llm_subname}"
     save_dir2 = f"./t_Finetuned/last_epoch_{llm_subname}"
@@ -265,6 +296,8 @@ def main():
             input_ids = batch["input_ids"].to(device)
             attention_mask = batch["attention_mask"].to(device)
             labels = batch["labels"].to(device)
+            if idx == 0 :
+                print("labels :", labels[0])
 
             outputs = llm(
                 input_ids=input_ids, attention_mask=attention_mask, labels=labels
@@ -292,7 +325,7 @@ def main():
         # After each epoch, evaluate on one batch of validation data
         llm.eval()
         results = []
-        if epoch >= 5:
+        if epoch >= 0: 
             with torch.no_grad():
                 nb_failure = 0
                 nb_reconstruction_mismatch = 0
@@ -317,7 +350,7 @@ def main():
                         format_spans=format_spans,
                         topk_examples=examples,
                         annotation_instructions=annotation_instructions,
-                        noise=False,
+                        prompt_file = "prompts/Prompt_gold_data_no_examples.txt" if k==0 else "prompts/Prompt_gold_data.txt",
                     )
 
                     if i == 0:
@@ -410,7 +443,7 @@ def main():
                         save_dir
                     )  # Need to save the config as well for loading the model in vllm
                     print(
-                        f"New best model saved with Validation F1 score: {best_f1_score}"
+                        f"New best model saved at {save_dir} with Validation F1 score: {best_f1_score}"
                     )
 
                     # if best_f1_score >= 0.82:
@@ -578,9 +611,10 @@ def main():
                     #         print(
                     #             "Annotations Instructions in prompt: ",
                     #             annotation_instructions,
-                    #         )
+                    #         ) 
 
     print(f"Training complete. Best Validation F1 score: {best_f1_score}")
+    print(f"Model saved at: {save_dir}")
 
     # Save the fine-tuned model of the last epoch
     llm.save_pretrained(save_dir2)

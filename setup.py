@@ -21,7 +21,7 @@ setup(
     install_requires=[
         "tqdm",
         "pandas",
-        "numpy",
+        "numpy>=1.23,<2",
         "matplotlib",
         "ujson",
         "torch",

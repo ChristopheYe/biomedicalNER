@@ -5,6 +5,7 @@ import pandas as pd
 from datasets import load_dataset
 from collections import Counter, defaultdict
 import warnings
+import re
 
 warnings.filterwarnings("ignore")
 
@@ -49,6 +50,30 @@ tag2label_bc5cdr = {
 extraction_prompts_bc5cdr = {
     "Chemical": "Return the text that is related to chemical. Example usage: in 'Suxamethonium infusion rate and observed fasciculations.', return 'Suxamethonium'.",
     "Disease": "Return the text that is related to disease. Example usage: in 'Suxamethonium infusion rate and observed fasciculations.', return 'fasciculations'.",
+}
+
+tag2label_mtsamples = {
+    "Medical_Problems": 0,
+    "Treatments": 1,
+    "Tests": 2
+}
+extraction_prompts_mtsamples = {
+    "Medical_Problems": "Return the text that is related to Medical Problems. Medical Problems are defined as: phrases that contain observations made by patients or clinicians about the patient’s body or mind that are thought to be abnormal or caused by a disease. They are loosely based on the UMLS semantic types of pathologic functions, disease or syndrome, mental or behavioral dysfunction, cellormolecular dysfunction, congenital abnormality, acquired abnormality,injury or poisoning, anatomic abnormality, neoplasticprocess, virus/bacterium, sign or symptom, but are not limited by UMLScoverage. Example usage: in 'Suxamethonium infusion rate and observed fasciculations.', return 'fasciculations'.",
+    "Treatments": "Return the text that is related to Treatments. Treatments are defined as: phrases that describe procedures, interventions, and substances given to a patient in an effort to resolve a medical problem. They are loosely based on the UMLS semantic types therapeutic or preventive procedure, medical device, steroid, pharmacologic substance, biomedical or dental material, antibiotic, clinical drug, and drug delivery device.  Other concepts that are treatments but that may not be found in UMLS are also included. Treatments that a patient had, will have, may have in the future, or are explicitly mentioned that the patient will not have are all marked as treatments. Example usage: in 'DVT prophylaxis was initiated with Lovenox.', return 'DVT prophylaxis' and 'Loveno'.",
+    "Tests": "Return the text that is related to Treatments. Tests are defined as: phrases that describe procedures, panels, and measures that are done to a patient or a body fluid or sample in order to discover, rule out, or find more information about a medical problem. They are loosely based on the UMLS semantic types laboratory procedure, diagnostic procedure, but also include instances not covered by UMLS. Example usage: in 'The patient returned to the breast center two days post stereotactic core needle biopsy', return 'stereotactic core needle biopsy'"
+}
+
+tag2label_vaers = {
+    "Investigation": 0,
+    "Nervous_Adverse_Event": 1,
+    "Other_Adverse_Event": 2,
+    "Procedure": 3,
+}
+extraction_prompts_vaers = {
+    "Investigation": "Return the text that is related to Investigation. Investigation includes typical lab tests or examinations in the report, such as physical examination, oxygen saturation, electromyogram, etc. Example usage: in 'An @@EMG##Investigation@@ perfomed 10 / 28 failed to show any evidence of a neuropathy', return 'EMG'.",
+    "Nervous_Adverse_Event": "Return the text that is related to Nervous Adverse Event. Nervous Adverse Event includes typically nervous system-related problems, such as guillain-barré syndrome, ataxia, areflexia, hypoaesthesia, paraesthesia, dizziness, headache and other nervous system disorders. Example usage: in 'Did not tell nurse about neurological symptoms.', return 'neurological symptoms'.",
+    "Other_Adverse_Event": "Return the text that is related to Other Adverse Event. Other Adverse Event includes medical problems that are assigned to other MedDRA SOCs, including gastrointestinal disorders, cardiac disorders, psychiatric disorders, musculoskeletal and connective tissue disorders, etc. Example usage: in 'Her illness progressed over the next few day', return 'illness'.",
+    "Procedure": "Return the text that is related to Procedure. Procedure includes non-medical problem events such as immunization, surgeries such as catheter placement, hospitalization, emergence care, intubation, etc. Example usage: in 'The patient was taken to hospital', return 'hospital'.",
 }
 
 tag2label_pico = {
@@ -576,3 +601,4 @@ def convert_ds_to_custom_format(ds, label2id):
             )
 
     return converted_data
+

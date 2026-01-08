@@ -1,10 +1,6 @@
 import os
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-import multiprocessing
-
-multiprocessing.set_start_method("spawn", force=True)
-
 
 def main():
     from transformers import (
@@ -17,33 +13,58 @@ def main():
 
     # llm_name = "mistralai/Mistral-Small-3.1-24B-Instruct-2503"
     # llm_subname = "mistral-small-3.1-24b-instruct-2503-hf"
-    llm_name = "google/gemma-3-12b-it"
-    llm_subname = "gemma-3-12b-it"
+    # llm_name = "mistralai/Ministral-3-14B-Instruct-2512"
+    # llm_subname = "ministral-3-14b-instruct-2512"
+    # llm_name = "google/gemma-3-12b-it"
+    # llm_subname = "gemma-3-12b-it"
     # llm_name = "google/gemma-3-27b-it"
     # llm_subname = "gemma-3-27b-it"
     # llm_name = "meta-llama/Llama-3.1-8B-Instruct"
     # llm_subname = "Llama-3.1-8B-Instruct"
     # llm_name = "microsoft/phi-4"
     # llm_subname = "phi-4"
+    # llm_name = "Qwen/Qwen3-4B"
+    # llm_subname = "Qwen3-4B"
+    # llm_name = "Qwen/Qwen3-4B-Instruct-2507"
+    # llm_subname = "Qwen3-4B-Instruct-2507"
+    # llm_name = "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    # llm_subname = "Qwen3-30B-A3B-Instruct-2507"
+    # llm_name = "Qwen/Qwen3-32B"
+    # llm_subname = "Qwen3-32B"    
+    
+    # import torch
+    # print("GPU count:", torch.cuda.device_count())
+    # print("Devices:", [torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())])
 
-    sampling_params = SamplingParams(
-        temperature=0, top_p=0.9, max_tokens=3000, stop=["<|eot_id|>"]
-    )
+    # sampling_params = SamplingParams(
+    #     temperature=0, top_p=0.9, max_tokens=3000, stop=["<|eot_id|>"]
+    # )
 
-    llm = LLM(
-        model=llm_name,
-        # tokenizer_mode="mistral",
-        # config_format="mistral",
-        # load_format="mistral",
-        load_format="auto",
-        # tensor_parallel_size=2,
-        # dtype="half",
-        # gpu_memory_utilization=0.9,
-        max_logprobs=1000,
-        device="auto",
-        max_model_len=22000,  # 16384
-    )
-    tokenizer = llm.get_tokenizer()
+    # llm = LLM(
+    #     model=llm_name,
+    #     tokenizer_mode="mistral",
+    #     config_format="mistral",
+    #     load_format="mistral",
+    #     # load_format="auto",
+    #     # tensor_parallel_size=4,
+    #     # dtype="bfloat16", # For Gemma-3
+    #     dtype="half",
+    #     gpu_memory_utilization=0.95,
+    #     max_logprobs=1000,
+    #     # device="auto",
+    #     max_model_len=25000 # 5000,  # 25000
+    # )
+    # tokenizer = llm.get_tokenizer()
+    
+    # llm_name = "mrfakename/mistral-small-3.1-24b-instruct-2503-hf"
+    # llm_subname = "Mistral-Small-3.1-24B-Instruct-2503"
+    # llm = AutoModelForCausalLM.from_pretrained(
+    #     llm_name,
+    #     torch_dtype="half",
+    #     device_map="auto",
+    #     attn_implementation="eager",
+    # )
+    # tokenizer = AutoTokenizer.from_pretrained(llm_name)
 
     # llm_name = "./t_Finetuned/tmerged_model_mm_st21pv_k=Just1Valid_full"
     # llm_subname = "Mistral_finetuned_k=Just1Valid_full"
@@ -55,24 +76,47 @@ def main():
     # )
     # tokenizer = AutoTokenizer.from_pretrained(llm_name)
 
-    # base_model_path = "mrfakename/mistral-small-3.1-24b-instruct-2503-hf"  # base model
-    # adapter_path = "./t_Finetuned/tfinetuned_mm_st21pv_k=1_true_batches=3000x4"  # my adapter folder
-    # llm_name = adapter_path
-    # llm_subname = "Mistral_finetuned_mm_st21pv_k=1_true_batches=3000x4"
-    # # Load base model and tokenizer
-    # base_model = AutoModelForCausalLM.from_pretrained(
-    #     base_model_path,
-    #     torch_dtype="auto",
-    #     device_map="auto",
-    # )
-    # tokenizer = AutoTokenizer.from_pretrained(base_model_path)
-    # if tokenizer.pad_token is None:
-    #     tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-    # base_model.resize_token_embeddings(len(tokenizer))
-    # # Load adapter on top of base model
-    # adapter = PeftModel.from_pretrained(base_model, adapter_path)
-    # # Merge adapter into the base model
-    # llm = adapter.merge_and_unload()
+    ##### Load fine-tuned model #####
+    base_model_path = "mrfakename/mistral-small-3.1-24b-instruct-2503-hf"  # base model
+    # base_model_path = "google/gemma-3-27b-it"
+    adapter_path = "./t_Finetuned/tfinetuned_mm_st21pv_k=3_true_batches=3002x2_lora_v2"  # my adapter folder
+    # adapter_path = "./t_Finetuned/tfinetuned_mtsamples_k=3_true_batches=2900x10"
+    llm_name = adapter_path
+
+    # llm_subname = "Mistral_finetuned_mtsamples_k=3_true_batches=2900x10"
+    llm_subname = "Mistral_finetuned_mm_st21pv_k=3_true_batches=3002x2_lora_v2"
+    # Load base model and tokenizer
+    base_model = AutoModelForCausalLM.from_pretrained(
+        base_model_path,
+        torch_dtype="auto",
+        device_map="auto",
+    )
+    tokenizer = AutoTokenizer.from_pretrained(base_model_path)
+    if tokenizer.pad_token is None:
+        tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+    base_model.resize_token_embeddings(len(tokenizer))
+    # Load adapter on top of base model
+    adapter = PeftModel.from_pretrained(base_model, adapter_path)
+    # Merge adapter into the base model
+    llm = adapter.merge_and_unload()
+
+    ######### Model for GPT4o #########
+    # llm_name = "gpt-4.1-2025-04-14"
+    # llm_subname = "gpt-4.1-2025-04-14"
+    # llm_name = "gpt-4.1-mini-2025-04-14"
+    # llm_subname = "gpt-4.1-mini-2025-04-14"
+    # llm_name = "gpt-4o-2024-11-20"
+    # llm_subname = "gpt-4o-2024-11-20"
+    # reasoning_effort = None
+    # llm_name = "gpt-4.5-preview"
+    # llm_subname = "gpt-4.5-preview"
+    # llm_name = "o3-mini"
+    # llm_subname = "o3-mini"
+    # llm_name = "gpt-5-mini"
+    # llm_subname = "gpt-5-mini"
+    # llm_name = "gpt-5"
+    # llm_subname = "gpt-5"
+    # reasoning_effort = "medium"
 
     import json
     from thefuzz import fuzz, process
@@ -97,7 +141,15 @@ def main():
     from data_utils import (
         subsets_data,
         tag2label_st21pv,
+        tag2label_ncbi,
+        tag2label_bc5cdr,
+        tag2label_mtsamples,
+        tag2label_vaers,
         extraction_prompts_st21pv_v2,
+        extraction_prompts_ncbi,
+        extraction_prompts_bc5cdr,
+        extraction_prompts_mtsamples,
+        extraction_prompts_vaers,
         format_spans,
         prompt_llm_hf,
         prompt_gpt,
@@ -121,6 +173,9 @@ def main():
 
     # Set up logging configuration
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
+    open_ai_api_key = "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"
+    # open_ai_api_key = "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"
+    openai.api_key = open_ai_api_key
 
     seed = 42
 
@@ -137,13 +192,37 @@ def main():
     ######### DATASET #########
     dataset = "mm_st21pv"
     dataset_dir = "mm_st21pv"
+    # dataset = "bc5cdr"
+    # dataset_dir = "bc5cdr"
+    # dataset = "ncbi_disease"
+    # dataset_dir = "ncbi_disease"
+    # dataset = "mtsamples"
+    # dataset_dir = "mtsamples"
+    # dataset = "vaers"
+    # dataset_dir = "vaers"    
 
-    extraction_prompts = extraction_prompts_st21pv_v2
-    tag_to_label = tag2label_st21pv
+    all_tag2label = {
+        "mm_st21pv": tag2label_st21pv,
+        "bc5cdr": tag2label_bc5cdr,  # Replace with actual tag2label for bc5cdr
+        "ncbi_disease": tag2label_ncbi,  # Replace with actual tag2label for ncbi_disease
+        "mtsamples": tag2label_mtsamples,
+        "vaers": tag2label_vaers,
+    }
+
+    all_extraction_prompts = {
+        "mm_st21pv": extraction_prompts_st21pv_v2,
+        "bc5cdr": extraction_prompts_bc5cdr,
+        "ncbi_disease": extraction_prompts_ncbi,
+        "mtsamples": extraction_prompts_mtsamples,
+        "vaers": extraction_prompts_vaers,
+    }
+
+    extraction_prompts = all_extraction_prompts[dataset]
+    tag_to_label = all_tag2label[dataset]
 
     dynamic = True  # dynamic few-shot (not static prompt)
 
-    version = "v4"
+    version = "v5"
 
     data_path = f"../data/{dataset_dir}/{dataset}.json"
     data = ujson.load(open(data_path))
@@ -181,9 +260,8 @@ def main():
     raw_results = []
 
     pmids_test = [pmid for pmid in data if data[pmid]["split"] == "test"]
-    # pmids_test = pmids_test[:542] + pmids_test[543:]
+    # pmids_test = pmids_test[:40]
     pmids_valid = [pmid for pmid in data if data[pmid]["split"] == "validation"]
-    pmids_valid = pmids_valid[:40]
 
     # pmids_test = [
     #     pmid for pmid in data if data[pmid]["split"] == "train"
@@ -196,7 +274,8 @@ def main():
 
     for eval_set in pmids_to_eval:
         pmids_subset = pmids_to_eval[eval_set]
-        for k in [10]:
+        for k in [1, 3, 5, 10]:
+        # for k in [0]:
             results = []
             raw_results = []
 
@@ -230,12 +309,32 @@ def main():
                     format_spans=format_spans,
                     topk_examples=examples,
                     annotation_instructions=annotation_instructions,
-                    noise=False,
+                    prompt_file = "prompts/Prompt_gold_data_no_examples.txt" if k==0 else "prompts/Prompt_gold_data.txt",
                 )
+                if i == 0 :
+                    print('Prompt: ', prompt)
 
                 start_time = time.time()
 
-                if isinstance(llm, LLM):
+                ###### GPT ######
+                if llm_name in [
+                    "gpt-4o-2024-11-20",
+                    "gpt-4.5-preview",
+                    "o3-mini",
+                    "gpt-4.1-mini-2025-04-14",
+                    "gpt-4.1-2025-04-14",
+                    "gpt-5",
+                    "gpt-5-mini",
+                    "gpt-5-nano",
+                ]:
+                    answer = prompt_gpt(
+                        system_instructions=system_instructions,
+                        gpt_version=llm_name,
+                        prompt=prompt,
+                        reasoning_effort=reasoning_effort,
+                    )
+
+                elif isinstance(llm, LLM):
                     answer = prompt_vllm(
                         system_instructions=system_instructions,
                         llm=llm,
@@ -332,4 +431,7 @@ def main():
 
 
 if __name__ == "__main__":
+    import multiprocessing
+    multiprocessing.set_start_method("spawn", force=True)
+    os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
     main()
