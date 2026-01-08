@@ -48,7 +48,7 @@ else:
 max_length = {
     "mm_st21pv": 9000,
     "mtsamples": 2000,
-    "vaers": 2000,
+    "vaers": 2000
 }
 
 
