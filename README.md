@@ -23,4 +23,4 @@ Training: `train_llm.py`
 Inference: `inference3.py`
 
 ### BERT-based models
-`models` directory contains the scripts for training (`train_perso`)
+`models` directory contains the scripts for training (`train_perso.py`)
